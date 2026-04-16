@@ -152,7 +152,7 @@
     <div class="input-label">日本語テキストを入力</div>
     <textarea id="inputText" placeholder="例：こんにちは、元気ですか？"></textarea>
     <div class="btn-row">
-      <button class="btn-primary" onclick="translate()">翻訳する →</button>
+      <button class="btn-primary" onclick="runTranslate()">翻訳する →</button>
       <button class="btn-secondary" onclick="clearInput()">クリア</button>
       <button class="btn-secondary" onclick="saveToHistory()">保存</button>
     </div>
@@ -166,11 +166,43 @@
 </div>
 
 <script>
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbyDiR9dXcpXk5euf-d98aepY_FDydl-GGNoKgTQJncMXTA_rQvjXZUhpnjQviRE3cSmVg/exec';
-const history = [];
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzKxkZsH-BSkpvtl1EnDANjWcsO-L4nXtBpnnly2qITkz0c5M9iOJWB9vI8rtrSUe6N/exec';
+const historyList = [];
 let currentResults = null;
 
-async function translate() {
+// ---- JSONP方式でCORSを回避 ----
+function callGAS(text) {
+  return new Promise((resolve, reject) => {
+    const cbName = '_cb_' + Date.now();
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('タイムアウト（15秒）。GASのデプロイ設定を確認してください。'));
+    }, 15000);
+
+    function cleanup() {
+      delete window[cbName];
+      const el = document.getElementById(cbName);
+      if (el) el.remove();
+      clearTimeout(timeout);
+    }
+
+    window[cbName] = function(data) {
+      cleanup();
+      resolve(data);
+    };
+
+    const script = document.createElement('script');
+    script.id = cbName;
+    script.src = `${GAS_URL}?text=${encodeURIComponent(text)}&callback=${cbName}`;
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('スクリプト読み込みエラー。URLを確認してください。'));
+    };
+    document.body.appendChild(script);
+  });
+}
+
+async function runTranslate() {
   const text = document.getElementById('inputText').value.trim();
   if (!text) { alert('テキストを入力してください'); return; }
 
@@ -178,8 +210,7 @@ async function translate() {
   rs.innerHTML = '<div class="loading"><span class="dot">●</span><span class="dot">●</span><span class="dot">●</span> 翻訳中...</div>';
 
   try {
-    const res = await fetch(`${GAS_URL}?text=${encodeURIComponent(text)}`);
-    const data = await res.json();
+    const data = await callGAS(text);
     if (data.error) throw new Error(data.error);
     currentResults = { input: text, ...data };
     showResults(data);
@@ -205,7 +236,7 @@ function showResults(r) {
 
 function saveToHistory() {
   if (!currentResults) return;
-  history.unshift({ no: history.length + 1, ...currentResults });
+  historyList.unshift({ no: historyList.length + 1, ...currentResults });
   renderHistory();
 }
 
@@ -216,14 +247,14 @@ function clearInput() {
 }
 
 function clearHistory() {
-  history.length = 0;
+  historyList.length = 0;
   renderHistory();
 }
 
 function renderHistory() {
   const el = document.getElementById('historyList');
-  if (!history.length) { el.innerHTML = '<div class="empty-state">履歴はありません</div>'; return; }
-  el.innerHTML = history.slice(0, 10).map(h => `
+  if (!historyList.length) { el.innerHTML = '<div class="empty-state">履歴はありません</div>'; return; }
+  el.innerHTML = historyList.slice(0, 10).map(h => `
     <div class="history-item" onclick="loadHistory(${h.no})">
       <div class="history-no">No.${h.no}</div>
       <div class="history-text">${h.input}</div>
@@ -232,7 +263,7 @@ function renderHistory() {
 }
 
 function loadHistory(no) {
-  const h = history.find(x => x.no === no);
+  const h = historyList.find(x => x.no === no);
   if (!h) return;
   document.getElementById('inputText').value = h.input;
   showResults(h);
