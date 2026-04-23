@@ -103,12 +103,35 @@
     margin-bottom: 7px;
     background: #f9f9fb;
   }
+  .result-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
   .result-lang {
     font-size: 10px;
     font-weight: 700;
     color: #888;
-    margin-bottom: 4px;
     letter-spacing: 0.04em;
+  }
+  .speak-btn {
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    color: #555;
+    line-height: 1;
+    transition: background 0.15s;
+    font-family: inherit;
+  }
+  .speak-btn:active { background: #e8e8f0; transform: scale(0.95); }
+  .speak-btn.speaking {
+    background: #1a1a2e;
+    color: white;
+    border-color: #1a1a2e;
   }
   .result-text { font-size: 14px; color: #222; line-height: 1.55; }
   .loading { text-align: center; padding: 16px; color: #888; font-size: 13px; }
@@ -151,6 +174,7 @@
       <span class="lang-badge">🇮🇳 हिन्दी</span>
       <span class="lang-badge">🇵🇰 اردو</span>
       <span class="lang-badge">🇧🇩 বাংলা</span>
+      <span class="lang-badge">🇱🇰 සිංහල</span>
     </div>
   </div>
   <div class="app-body">
@@ -224,19 +248,80 @@ async function runTranslate() {
   }
 }
 
+const langCodeMap = {
+  english: 'en-US',
+  hindi:   'hi-IN',
+  urdu:    'ur-PK',
+  bengali: 'bn-BD',
+  sinhala: 'si-LK'
+};
+
 function showResults(r) {
   const langs = [
     { key: 'english', label: '🇬🇧 English' },
     { key: 'hindi',   label: '🇮🇳 हिन्दी (Hindi)' },
     { key: 'urdu',    label: '🇵🇰 اردو (Urdu)' },
-    { key: 'bengali', label: '🇧🇩 বাংলা (Bengali)' }
+    { key: 'bengali', label: '🇧🇩 বাংলা (Bengali)' },
+    { key: 'sinhala', label: '🇱🇰 සිංහල (Sinhala)' }
   ];
   document.getElementById('resultsSection').innerHTML = langs.map(l => `
     <div class="result-card">
-      <div class="result-lang">${l.label}</div>
-      <div class="result-text">${r[l.key] || ''}</div>
+      <div class="result-card-header">
+        <div class="result-lang">${l.label}</div>
+        <button class="speak-btn" id="speak-${l.key}" onclick="speakText('${l.key}', this)" ${!r[l.key] ? 'disabled' : ''}>🔊 読む</button>
+      </div>
+      <div class="result-text" id="text-${l.key}">${r[l.key] || ''}</div>
     </div>
   `).join('');
+}
+
+let currentUtterance = null;
+let currentBtn = null;
+
+function speakText(langKey, btn) {
+  // 再生中のものがあれば停止
+  if (currentUtterance) {
+    speechSynthesis.cancel();
+    if (currentBtn) {
+      currentBtn.classList.remove('speaking');
+      currentBtn.textContent = '🔊 読む';
+    }
+    // 同じボタンを押した場合は停止だけして終了
+    if (currentBtn === btn) {
+      currentUtterance = null;
+      currentBtn = null;
+      return;
+    }
+  }
+
+  const text = document.getElementById('text-' + langKey)?.textContent?.trim();
+  if (!text) return;
+
+  const langCode = langCodeMap[langKey] || 'en-US';
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = langCode;
+  utter.rate = 0.9;
+
+  // 対応音声を探す（なければデフォルト）
+  const voices = speechSynthesis.getVoices();
+  const matched = voices.find(v => v.lang === langCode) ||
+                  voices.find(v => v.lang.startsWith(langCode.split('-')[0]));
+  if (matched) utter.voice = matched;
+
+  utter.onstart = () => {
+    btn.classList.add('speaking');
+    btn.textContent = '⏹ 停止';
+    currentBtn = btn;
+    currentUtterance = utter;
+  };
+  utter.onend = utter.onerror = () => {
+    btn.classList.remove('speaking');
+    btn.textContent = '🔊 読む';
+    currentUtterance = null;
+    currentBtn = null;
+  };
+
+  speechSynthesis.speak(utter);
 }
 
 function saveToHistory() {
